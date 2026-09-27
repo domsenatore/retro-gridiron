@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Retro Gridiron</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;background:#171717;color:#f4f1df;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  #wrap{max-width:980px;margin:0 auto;padding:14px}
+  h1{font-size:24px;margin:0 0 6px;letter-spacing:2px}.sub{opacity:.72;margin-bottom:10px}
+  canvas{display:block;width:100%;max-width:960px;aspect-ratio:16/9;background:#397b3c;border:5px solid #e7dfb4;image-rendering:pixelated}
+  #hud{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+  .box{background:#292929;border:2px solid #777;padding:8px 12px;min-width:120px}
+  #controls{display:flex;gap:8px;flex-wrap:wrap}
+  button{font:inherit;background:#e7dfb4;color:#171717;border:0;padding:10px 14px;font-weight:800;cursor:pointer}
+  button:hover{filter:brightness(.9)} .help{font-size:13px;line-height:1.45;opacity:.8;margin-top:10px}
+</style>
+</head>
+<body>
+<div id="wrap">
+<h1>RETRO GRIDIRON</h1>
+<div class="sub">Original arcade football prototype inspired by classic pixel-football games.</div>
+<canvas id="game" width="960" height="540"></canvas>
+<div id="hud">
+ <div class="box" id="score">YOU 0 - CPU 0</div>
+ <div class="box" id="down">1st & 10</div>
+ <div class="box" id="yard">BALL: 25</div>
+ <div class="box" id="clock">Q1 2:00</div>
+</div>
+<div id="controls">
+ <button id="run">RUN PLAY</button>
+ <button id="pass">PASS PLAY</button>
+ <button id="reset">NEW GAME</button>
+</div>
+<div class="help">
+Controls: WASD / arrow keys move the ball carrier. On a pass play, press SPACE to throw to the highlighted receiver.
+Cross the RIGHT-SIDE goal line to score a touchdown. Tackles advance the down; four failed downs cause a turnover. This is an original prototype and does not use Retro Bowl assets or code.
+</div>
+</div>
+<script>
+const c=document.getElementById('game'),x=c.getContext('2d');
+const W=c.width,H=c.height, field={l:70,r:890,t:55,b:485};
+let state;
+const keys={};
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(e.code==='Space'){e.preventDefault();throwBall()}});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+document.getElementById('run').onclick=()=>startPlay('run');
+document.getElementById('pass').onclick=()=>startPlay('pass');
+document.getElementById('reset').onclick=reset;
+
+function reset(){
+ state={score:0,cpu:0,down:1,toGo:10,ballYard:25,quarter:1,time:120,mode:'ready',type:null,
+ player:{x:yardX(25),y:270,r:10}, defenders:[], receivers:[], target:null,ball:null,msg:'CHOOSE A PLAY',last:performance.now()};
+ updateHud();
+}
+function yardX(y){return field.l+(y/100)*(field.r-field.l)}
+function xYard(px){return Math.max(0,Math.min(100,(px-field.l)/(field.r-field.l)*100))}
+function startPlay(type){
+ if(state.mode!=='ready')return;
+ state.type=type;state.mode='play';state.msg='';
+ state.player={x:yardX(state.ballYard),y:270,r:10};
+ state.defenders=[];
+ for(let i=0;i<5;i++) state.defenders.push({x:state.player.x+95+i*42,y:105+i*78,r:11,s:72+Math.random()*20});
+ state.receivers= type==='pass' ? [{x:state.player.x+30,y:155,r:9},{x:state.player.x+30,y:385,r:9}] : [];
+ state.target=0; state.ball=null;
+}
+function throwBall(){
+ if(state.mode!=='play'||state.type!=='pass'||state.ball)return;
+ let r=state.receivers[state.target];
+ state.ball={x:state.player.x,y:state.player.y,tx:r.x,ty:r.y,v:390};
+}
+function endPlay(){
+ let reachedYard = xYard(state.player.x);
+ let gained = Math.max(0, Math.floor(reachedYard - state.ballYard));
+ if(reachedYard >= 99.5){
+   state.ballYard = 100;
+ } else {
+   state.ballYard += gained;
+ }
+ if(state.ballYard>=100){state.score+=7;state.ballYard=25;state.down=1;state.toGo=10;state.msg='TOUCHDOWN!';}
+ else if(gained>=state.toGo){state.down=1;state.toGo=10;state.msg=`FIRST DOWN +${gained}`;}
+ else {state.toGo-=gained;state.down++;state.msg=`TACKLED +${gained}`;
+   if(state.down>4){state.cpu+=Math.random()<.55?3:0;state.ballYard=25;state.down=1;state.toGo=10;state.msg='TURNOVER';}
+ }
+ state.mode='pause';setTimeout(()=>{state.mode='ready';state.msg='CHOOSE A PLAY'},850);updateHud();
+}
+function update(dt){
+ if(state.mode!=='play')return;
+ state.time=Math.max(0,state.time-dt);
+ if(state.time<=0){state.quarter++;state.time=120;if(state.quarter>4){state.mode='gameover';state.msg=state.score>=state.cpu?'YOU WIN!':'CPU WINS';return}}
+ let p=state.player, sp=145;
+ let dx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0);
+ let dy=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);
+ let m=Math.hypot(dx,dy)||1;p.x+=dx/m*sp*dt;p.y+=dy/m*sp*dt;
+ p.x=Math.max(field.l,Math.min(field.r,p.x));p.y=Math.max(field.t+5,Math.min(field.b-5,p.y));
+ if(state.type==='pass'){
+   state.receivers.forEach((r,i)=>{r.x+=105*dt;r.y+=Math.sin(performance.now()/350+i)*18*dt;r.x=Math.min(field.r-8,r.x)});
+   if(!state.ball && Math.floor(performance.now()/700)%2===0)state.target=(state.target+1)%2;
+ }
+ // Touchdown check comes BEFORE tackle checks so crossing the goal line always counts.
+ if(!state.ball && xYard(state.player.x) >= 99.5){
+   state.player.x = field.r;
+   endPlay();
+   return;
+ }
+
+ state.defenders.forEach(d=>{
+   let target=state.ball?state.ball:state.player;
+   let ax=target.x-d.x,ay=target.y-d.y,am=Math.hypot(ax,ay)||1;
+   d.x+=ax/am*d.s*dt;d.y+=ay/am*d.s*dt;
+   if(state.mode==='play' && !state.ball && Math.hypot(d.x-state.player.x,d.y-state.player.y)<d.r+state.player.r+3)endPlay();
+ });
+ if(state.ball){
+   let b=state.ball,ax=b.tx-b.x,ay=b.ty-b.y,am=Math.hypot(ax,ay)||1;
+   b.x+=ax/am*b.v*dt;b.y+=ay/am*b.v*dt;
+   if(am<14){let r=state.receivers[state.target];state.player={x:r.x,y:r.y,r:10};state.receivers=[];state.ball=null;state.type='run';}
+ }
+ updateHud();
+}
+function updateHud(){
+ document.getElementById('score').textContent=`YOU ${state.score} - CPU ${state.cpu}`;
+ document.getElementById('down').textContent=`${['1st','2nd','3rd','4th'][state.down-1]||'1st'} & ${state.toGo}`;
+ document.getElementById('yard').textContent=`BALL: ${Math.floor(state.ballYard)}`;
+ document.getElementById('clock').textContent=`Q${Math.min(4,state.quarter)} ${Math.floor(state.time/60)}:${String(Math.floor(state.time%60)).padStart(2,'0')}`;
+}
+function draw(){
+ x.fillStyle='#397b3c';x.fillRect(0,0,W,H);
+ x.fillStyle='#2f6933';for(let i=0;i<10;i+=2)x.fillRect(yardX(i*10),field.t,(field.r-field.l)/10,field.b-field.t);
+ x.strokeStyle='#f4f1df';x.lineWidth=3;x.strokeRect(field.l,field.t,field.r-field.l,field.b-field.t);
+ x.font='16px monospace';x.textAlign='center';x.fillStyle='#f4f1df';
+ for(let y=10;y<100;y+=10){let px=yardX(y);x.beginPath();x.moveTo(px,field.t);x.lineTo(px,field.b);x.stroke();x.fillText(y<=50?y:100-y,px,field.t+25)}
+ x.fillStyle='#1e4d9b';x.fillRect(field.l-50,field.t,50,field.b-field.t);x.fillStyle='#a11f2d';x.fillRect(field.r,field.t,50,field.b-field.t);
+ x.save();x.translate(field.l-24,270);x.rotate(-Math.PI/2);x.fillStyle='white';x.font='22px monospace';x.fillText('HOME',0,0);x.restore();
+ x.save();x.translate(field.r+28,270);x.rotate(Math.PI/2);x.fillText('END ZONE',0,0);x.restore();
+ // first down marker
+ if(state.mode==='play'){x.strokeStyle='#ffd84a';x.lineWidth=4;let fd=yardX(Math.min(100,state.ballYard+state.toGo));x.beginPath();x.moveTo(fd,field.t);x.lineTo(fd,field.b);x.stroke();}
+ // sprites
+ state.defenders.forEach(d=>circle(d.x,d.y,d.r,'#d44'));
+ state.receivers.forEach((r,i)=>{circle(r.x,r.y,r.r,i===state.target?'#ffe55c':'#7cc8ff')});
+ circle(state.player.x,state.player.y,state.player.r,'#7cc8ff');
+ if(state.ball)circle(state.ball.x,state.ball.y,5,'#6b3e22');
+ if(state.msg){x.fillStyle='rgba(0,0,0,.65)';x.fillRect(270,230,420,80);x.fillStyle='#fff';x.font='bold 30px monospace';x.fillText(state.msg,480,280)}
+ if(state.mode==='play'&&state.type==='pass'&&!state.ball){x.font='14px monospace';x.fillStyle='#fff';x.fillText('SPACE = THROW',480,525)}
+}
+function circle(a,b,r,col){x.fillStyle=col;x.beginPath();x.arc(a,b,r,0,Math.PI*2);x.fill();x.strokeStyle='#111';x.lineWidth=2;x.stroke()}
+function loop(t){let dt=Math.min(.03,(t-state.last)/1000);state.last=t;update(dt);draw();requestAnimationFrame(loop)}
+reset();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
